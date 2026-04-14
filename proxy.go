@@ -7,19 +7,39 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 )
 
 type Proxy struct {
 	cfg    *Config
 	client *http.Client
+	consoleLog *log.Logger
+	fileLog    *log.Logger
 }
 
 func NewProxy(cfg *Config) *Proxy {
-	return &Proxy{
+	p := &Proxy{
 		cfg:    cfg,
 		client: &http.Client{},
 	}
+
+	// console logger
+	if cfg.ConsoleLogOn {
+		p.consoleLog = log.New(os.Stdout, "", 0)
+	}
+
+	// file logger
+	if cfg.LogEnabled && cfg.LogFile != "" {
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			log.Printf("warning: cannot open log file %s: %v", cfg.LogFile, err)
+		} else {
+			p.fileLog = log.New(f, "", 0)
+		}
+	}
+	return p
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -65,9 +85,27 @@ func (p *Proxy) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyBytes, err := json.Marshal(openReq)
-	if err != nil {
-		writeError(w, 500, "marshal error: "+err.Error())
+	if p.consoleLog != nil || p.fileLog != nil {
+		tag := "HTTP"
+		if req.Stream {
+			tag = "SSE"
+		}
+		if p.consoleLog != nil {
+			model := req.Model
+			if model == "" {
+				model = p.cfg.DefaultModel
+			}
+			p.consoleLog.Printf("[%s] [%s] %s %s → %s/v1/chat/completions (%s)", time.Now().Format("15:04:05"), tag, r.Method, r.URL.Path, p.cfg.OpenAIAPIURL, model)
+		}
+		if p.fileLog != nil {
+			bodyBytes, _ := json.Marshal(openReq)
+			p.fileLog.Printf("[%s] [%s] %s %s → %s\n%s", time.Now().Format(time.RFC3339), tag, r.Method, r.URL.Path, r.RemoteAddr, string(bodyBytes))
+		}
+	}
+
+	bodyBytes, marshalErr := json.Marshal(openReq)
+	if marshalErr != nil {
+		writeError(w, 500, "marshal error: "+marshalErr.Error())
 		return
 	}
 

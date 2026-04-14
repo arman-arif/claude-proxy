@@ -1,17 +1,37 @@
-# anthropics-proxy
+# Claude Proxy / Anthropic Claude Proxy.
 
 Anthropic Claude API → OpenAI compatible proxy.
 
-Use any Anthropic-compatible client (Claude SDK, Claude Code CLI) with OpenAI models.
+Use any Anthropic-compatible client (Claude SDK, Claude Code CLI) with OpenAI compatible API endpoints.
 
 ## Quick start
+
+```bash
+./serve
+```
+
+Or manually:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 go run .
 ```
 
-Server starts on `0.0.0.0:8080`.
+Server starts on `0.0.0.0:8080` (or set `BIND_ADDR`).
+
+## .env file
+
+Create a `.env` file to set defaults:
+
+```
+OPENAI_API_KEY=sk-...
+OPENAI_API_URL=https://api.openai.com
+DEFAULT_MODEL=gpt-4o
+PROXY_LOG_ENABLED=false
+PROXY_CONSOLE_LOG=true
+```
+
+`./serve` loads `.env` automatically. CLI flags override.
 
 ## Config
 
@@ -21,6 +41,16 @@ Server starts on `0.0.0.0:8080`.
 | `OPENAI_API_KEY` | _(required)_ | OpenAI API key |
 | `OPENAI_API_URL` | `https://api.openai.com` | OpenAI API base URL |
 | `DEFAULT_MODEL` | `gpt-4o` | Default model |
+| `PROXY_LOG_ENABLED` | `false` | Enable file logging |
+| `PROXY_LOG_FILE` | `proxy.log` | Log file path |
+| `PROXY_CONSOLE_LOG` | `true` | Log to console |
+
+## CLI flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-log-console=true` | `true` | Log requests to console |
+| `-log-file=true` | `true` | Log requests to file (`PROXY_LOG_FILE`) |
 
 ## Endpoints
 
@@ -47,7 +77,7 @@ curl http://localhost:8080/v1/messages \
   -H "x-api-key: anything" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "claude-3-5-sonnet-20241022",
+    "model": "gpt-4o",
     "max_tokens": 1024,
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
@@ -61,7 +91,7 @@ curl -N http://localhost:8080/v1/messages \
   -H "x-api-key: anything" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "claude-3-5-sonnet-20241022",
+    "model": "gpt-4o",
     "max_tokens": 200,
     "stream": true,
     "messages": [{"role": "user", "content": "Count to 5"}]
@@ -79,7 +109,7 @@ client = anthropic.Anthropic(
 )
 
 message = client.messages.create(
-    model="claude-3-5-sonnet-20241022",
+    model="gpt-4o",
     max_tokens=1024,
     messages=[{"role": "user", "content": "Hello!"}],
 )
@@ -97,5 +127,5 @@ claude
 ## Build
 
 ```bash
-go build -o anthropics-proxy .
+go build -o claude-proxy .
 ```

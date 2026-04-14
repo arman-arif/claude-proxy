@@ -9,14 +9,23 @@ import (
 	"time"
 )
 
+type ToolCallAcc struct {
+	ID    string
+	Name  string
+	Args  strings.Builder
+}
+
 type AnthropicStreamBuilder struct {
 	ID         string
 	Model      string
 	Created    int64
 	TextBuf    strings.Builder
-	ToolCalls  []ContentBlock
+	ToolCalls  []ToolCallAcc
 	Usage      *OpenAIUsage
-	ToolIdx    int
+	SawContent bool
+	SawTool    bool
+	TextOpen   bool
+	ToolOpen   bool
 }
 
 func NewStreamBuilder(model string) *AnthropicStreamBuilder {
@@ -49,7 +58,7 @@ func (sb *AnthropicStreamBuilder) HandleOpenAIEvent(line string) (events []strin
 	choice := evt.Choices[0]
 
 	// first chunk → message_start
-	if sb.Created == time.Now().UnixMilli() && len(sb.ToolCalls) == 0 && sb.TextBuf.Len() == 0 {
+	if !sb.SawContent && !sb.SawTool {
 		events = append(events, sb.EmitMessageStart(&evt))
 	}
 
@@ -57,58 +66,56 @@ func (sb *AnthropicStreamBuilder) HandleOpenAIEvent(line string) (events []strin
 	if choice.Delta != nil {
 		if choice.Delta.Content != "" {
 			sb.TextBuf.WriteString(choice.Delta.Content)
-			events = append(events, sb.EmitContentBlockStart("text", 0))
+			if !sb.TextOpen {
+				events = append(events, sb.EmitContentBlockStart("text", 0))
+				sb.TextOpen = true
+			}
 			events = append(events, sb.EmitContentDelta("text", choice.Delta.Content, 0))
+			sb.SawContent = true
 		}
 
 		for _, tc := range choice.Delta.ToolCalls {
+			idx := 0
 			if tc.ID != "" {
-				var input any
-				json.Unmarshal([]byte(tc.Function.Arguments), &input)
-				block := ContentBlock{
-					Type:  "tool_use",
-					ID:    tc.ID,
-					Name:  tc.Function.Name,
-					Input: input,
+				// new tool call
+				sb.ToolCalls = append(sb.ToolCalls, ToolCallAcc{
+					ID:   tc.ID,
+					Name: tc.Function.Name,
+				})
+				idx = len(sb.ToolCalls) - 1
+				if !sb.ToolOpen {
+					events = append(events, sb.EmitContentBlockStart("tool_use", idx))
+					sb.ToolOpen = true
 				}
-				sb.ToolCalls = append(sb.ToolCalls, block)
-				events = append(events, sb.EmitContentBlockStart("tool_use", sb.ToolIdx))
+				events = append(events, sb.EmitToolDelta(tc.ID, tc.Function.Name, tc.Function.Arguments, idx))
 				if tc.Function.Name != "" {
-					events = append(events, sb.EmitToolDelta(tc.ID, tc.Function.Name, "", sb.ToolIdx))
+					sb.ToolCalls[idx].Name = tc.Function.Name
 				}
 				if tc.Function.Arguments != "" {
-					events = append(events, sb.EmitToolDelta(tc.ID, tc.Function.Name, tc.Function.Arguments, sb.ToolIdx))
+					sb.ToolCalls[idx].Args.WriteString(tc.Function.Arguments)
 				}
-				sb.ToolIdx++
+				sb.SawTool = true
 			} else if len(sb.ToolCalls) > 0 {
-				last := &sb.ToolCalls[len(sb.ToolCalls)-1]
-				var currentArgs string
-				if last.Input != nil {
-					if bs, _ := json.Marshal(last.Input); bs != nil {
-						currentArgs = string(bs)
-					}
+				// accumulate args by index
+				if idx < len(sb.ToolCalls) {
+					sb.ToolCalls[idx].Args.WriteString(tc.Function.Arguments)
+					events = append(events, sb.EmitToolDelta(sb.ToolCalls[idx].ID, sb.ToolCalls[idx].Name, tc.Function.Arguments, idx))
 				}
-				var newInput any
-				fullArgs := currentArgs + tc.Function.Arguments
-				json.Unmarshal([]byte(fullArgs), &newInput)
-				last.Input = newInput
-				events = append(events, sb.EmitToolDelta(last.ID, last.Name, tc.Function.Arguments, sb.ToolIdx-1))
 			}
 		}
 	}
 
 	if choice.FinishReason != "" {
-		events = append(events, sb.EmitMessageDelta(&evt))
-		if len(events) > 0 {
-			// close last content block
-			if sb.TextBuf.Len() > 0 || len(sb.ToolCalls) > 0 {
-				idx := 0
-				if len(sb.ToolCalls) > 0 {
-					idx = sb.ToolIdx - 1
-				}
-				events = append(events, sb.EmitContentBlockStop(idx))
-			}
+		// close open blocks before finish
+		if sb.TextOpen {
+			events = append(events, sb.EmitContentBlockStop(0))
+			sb.TextOpen = false
 		}
+		if sb.ToolOpen && len(sb.ToolCalls) > 0 {
+			events = append(events, sb.EmitContentBlockStop(len(sb.ToolCalls)-1))
+			sb.ToolOpen = false
+		}
+		events = append(events, sb.EmitMessageDelta(&evt))
 	}
 
 	return events, nil
@@ -131,19 +138,24 @@ data: %s
 }
 
 func (sb *AnthropicStreamBuilder) EmitContentBlockStart(typ string, idx int) string {
+	cb := map[string]any{
+		"type":  typ,
+		"index": idx,
+	}
+	if typ == "text" {
+		cb["text"] = ""
+	} else {
+		cb["id"] = ""
+		cb["name"] = ""
+		cb["input"] = map[string]any{}
+	}
 	return fmt.Sprintf(`event: content_block_start
 data: %s
 
 `, mustJSON(map[string]any{
-		"type":  "content_block_start",
-		"index": idx,
-		"content_block": map[string]any{
-			"type": typ,
-			"text": "",
-			"id":   "",
-			"name": "",
-			"input": map[string]any{},
-		},
+		"type":          "content_block_start",
+		"index":         idx,
+		"content_block": cb,
 	}))
 }
 
@@ -179,24 +191,17 @@ data: %s
 		"type":  "content_block_delta",
 		"index": idx,
 		"delta": map[string]any{
-			"type":        "input_json_delta",
+			"type":         "input_json_delta",
 			"partial_json": partial,
 		},
 	}))
 }
 
 func (sb *AnthropicStreamBuilder) EmitMessageDelta(evt *OpenAIStreamEvent) string {
-	finish := mapStopReason("")
+	finish := "end_turn"
 	if len(evt.Choices) > 0 {
 		finish = mapStopReason(evt.Choices[0].FinishReason)
 	}
-
-	// collect content and tool_use blocks
-	var content []ContentBlock
-	if sb.TextBuf.Len() > 0 {
-		content = append(content, ContentBlock{Type: "text", Text: sb.TextBuf.String()})
-	}
-	content = append(content, sb.ToolCalls...)
 
 	return fmt.Sprintf(`event: message_delta
 data: %s
@@ -204,7 +209,7 @@ data: %s
 `, mustJSON(map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
-			"stop_reason": finish,
+			"stop_reason":   finish,
 			"stop_sequence": nil,
 		},
 		"usage": map[string]any{
@@ -219,7 +224,6 @@ func (sb *AnthropicStreamBuilder) EmitFinish() []string {
 
 	finish := "end_turn"
 
-	// usage if available
 	usage := map[string]any{
 		"input_tokens":  0,
 		"output_tokens": 0,

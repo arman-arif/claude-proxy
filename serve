@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
+export OPENAI_API_KEY="${OPENAI_API_KEY:?OPENAI_API_KEY missing (set in .env)}"
+export OPENAI_API_URL="${OPENAI_API_URL:-https://api.openai.com}"
+export DEFAULT_MODEL="${DEFAULT_MODEL:-gpt-4o}"
+export BIND_ADDR="${BIND_ADDR:-0.0.0.0:8080}"
+
+exec go run "$SCRIPT_DIR" "$@"

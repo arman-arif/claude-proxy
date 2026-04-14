@@ -1,5 +1,7 @@
 package main
 
+import "encoding/json"
+
 // === Anthropic API types (what clients send) ===
 
 type AnthropicMessageRequest struct {
@@ -17,7 +19,33 @@ type AnthropicMessageRequest struct {
 
 type AnthropicMessage struct {
 	Role    string         `json:"role"`
-	Content []ContentBlock `json:"content"`
+	Content ContentValue   `json:"content"`
+}
+
+// ContentValue handles both string and []ContentBlock
+type ContentValue struct {
+	Blocks []ContentBlock
+}
+
+func (cv *ContentValue) UnmarshalJSON(data []byte) error {
+	// try string first
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		cv.Blocks = []ContentBlock{{Type: "text", Text: s}}
+		return nil
+	}
+	// try array
+	if err := json.Unmarshal(data, &cv.Blocks); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (cv *ContentValue) MarshalJSON() ([]byte, error) {
+	if len(cv.Blocks) == 1 && cv.Blocks[0].Type == "text" {
+		return json.Marshal(cv.Blocks[0].Text)
+	}
+	return json.Marshal(cv.Blocks)
 }
 
 type ContentBlock struct {

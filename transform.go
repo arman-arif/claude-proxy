@@ -22,6 +22,20 @@ func TransformToOpenAI(req *AnthropicMessageRequest, cfg *Config) (*OpenAIChatRe
 	if openReq.MaxTokens <= 0 {
 		openReq.MaxTokens = 4096
 	}
+	// defaults for OpenAI compat
+	if openReq.TopP <= 0 {
+		openReq.TopP = 1
+	}
+	if openReq.Temperature <= 0 {
+		openReq.Temperature = 1
+	}
+	// cap for non-streaming (OpenAI compat)
+	if !openReq.Stream && openReq.MaxTokens > 8192 {
+		openReq.MaxTokens = 8192
+	}
+	if openReq.Stream && openReq.MaxTokens > 65536 {
+		openReq.MaxTokens = 65536
+	}
 
 	// System: prepend as system message
 	var msgs []OpenAIMessage
@@ -48,21 +62,20 @@ func TransformToOpenAI(req *AnthropicMessageRequest, cfg *Config) (*OpenAIChatRe
 
 		switch m.Role {
 		case "assistant":
-			if hasToolUse(m.Content) {
-				om.ToolCalls = extractToolCalls(m.Content)
-				// also collect text if any
-				if txt := extractText(m.Content); txt != "" {
+			if hasToolUse(m.Content.Blocks) {
+				om.ToolCalls = extractToolCalls(m.Content.Blocks)
+				if txt := extractText(m.Content.Blocks); txt != "" {
 					om.Content = txt
 				} else {
 					om.Content = nil
 				}
 			} else {
-				om.Content = buildContent(m.Content)
+				om.Content = buildContent(m.Content.Blocks)
 			}
 		case "user":
-			om.Content = buildContent(m.Content)
+			om.Content = buildContent(m.Content.Blocks)
 		default:
-			om.Content = buildContent(m.Content)
+			om.Content = buildContent(m.Content.Blocks)
 		}
 
 		msgs = append(msgs, om)
