@@ -1,3 +1,6 @@
-claude-proxy
+bin/
+log/
+tmp/
 .env
 *.log
+*.pid

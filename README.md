@@ -33,6 +33,17 @@ PROXY_CONSOLE_LOG=true
 
 `./serve` loads `.env` automatically. CLI flags override.
 
+## Manage
+
+```bash
+./serve                    # foreground (default)
+./serve --daemon           # run in background (Go setsid)
+./serve --stop             # stop background
+./serve --status           # check if running
+```
+
+Background process logs to `log/daemon.log` and writes PID to `.daemon.pid`.
+
 ## Config
 
 | Env var | Default | Description |

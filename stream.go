@@ -10,9 +10,9 @@ import (
 )
 
 type ToolCallAcc struct {
-	ID    string
-	Name  string
-	Args  strings.Builder
+	ID   string
+	Name string
+	Args []byte
 }
 
 type AnthropicStreamBuilder struct {
@@ -92,13 +92,13 @@ func (sb *AnthropicStreamBuilder) HandleOpenAIEvent(line string) (events []strin
 					sb.ToolCalls[idx].Name = tc.Function.Name
 				}
 				if tc.Function.Arguments != "" {
-					sb.ToolCalls[idx].Args.WriteString(tc.Function.Arguments)
+					sb.ToolCalls[idx].Args = append(sb.ToolCalls[idx].Args, tc.Function.Arguments...)
 				}
 				sb.SawTool = true
 			} else if len(sb.ToolCalls) > 0 {
 				// accumulate args by index
 				if idx < len(sb.ToolCalls) {
-					sb.ToolCalls[idx].Args.WriteString(tc.Function.Arguments)
+					sb.ToolCalls[idx].Args = append(sb.ToolCalls[idx].Args, tc.Function.Arguments...)
 					events = append(events, sb.EmitToolDelta(sb.ToolCalls[idx].ID, sb.ToolCalls[idx].Name, tc.Function.Arguments, idx))
 				}
 			}
