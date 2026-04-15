@@ -36,13 +36,19 @@ PROXY_CONSOLE_LOG=true
 ## Manage
 
 ```bash
-./serve                    # foreground (default)
+./serve                    # foreground (auto-builds to bin/ if missing)
 ./serve --daemon           # run in background (Go setsid)
 ./serve --stop             # stop background
 ./serve --status           # check if running
 ```
 
 Background process logs to `log/daemon.log` and writes PID to `.daemon.pid`.
+
+## Build
+
+```bash
+go build -o bin/claude-proxy .
+```
 
 ## Config
 
@@ -133,10 +139,4 @@ print(message.content[0].text)
 export ANTHROPIC_BASE_URL=http://localhost:8080
 export ANTHROPIC_API_KEY=anything
 claude
-```
-
-## Build
-
-```bash
-go build -o claude-proxy .
 ```

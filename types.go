@@ -197,3 +197,28 @@ type OpenAIStreamEvent struct {
 	Choices []OpenAIChoice `json:"choices"`
 	Usage   *OpenAIUsage   `json:"usage,omitempty"`
 }
+
+// === Models API types ===
+
+type OpenAIModel struct {
+	ID      string `json:"id"`
+	Created int64  `json:"created"`
+	Object  string `json:"object"`
+}
+
+type OpenAIModelsResponse struct {
+	Object string        `json:"object"`
+	Data   []OpenAIModel `json:"data"`
+}
+
+type ModelInfo struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Created int64  `json:"created"`
+	Object  string `json:"object"`
+}
+
+type ModelsResponse struct {
+	Object string      `json:"object"`
+	Data   []ModelInfo `json:"data"`
+}

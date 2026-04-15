@@ -67,6 +67,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		p.handleCountTokens(w, r)
 
+	case strings.HasSuffix(r.URL.Path, "/v1/models"):
+		if r.Method == "GET" {
+			p.handleListModels(w, r)
+		} else if r.Method == "OPTIONS" {
+			setCORS(w)
+			w.WriteHeader(200)
+			return
+		} else {
+			writeError(w, 405, "method not allowed")
+			return
+		}
+
 	default:
 		http.NotFound(w, r)
 	}
@@ -182,9 +194,57 @@ func (p *Proxy) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (p *Proxy) handleListModels(w http.ResponseWriter, r *http.Request) {
+	req, err := http.NewRequest("GET", p.cfg.OpenAIAPIURL+"/v1/models", nil)
+	if err != nil {
+		writeError(w, 500, "request error: "+err.Error())
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+p.cfg.OpenAIAPIKey)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		writeError(w, 502, "upstream error: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("openai models error [%d]: %s", resp.StatusCode, string(body))
+		writeError(w, resp.StatusCode, fmt.Sprintf("OpenAI API error: %s", string(body)))
+		return
+	}
+
+	var openResp OpenAIModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&openResp); err != nil {
+		writeError(w, 500, "decode error: "+err.Error())
+		return
+	}
+
+	models := make([]ModelInfo, 0, len(openResp.Data))
+	for _, m := range openResp.Data {
+		models = append(models, ModelInfo{
+			ID:      m.ID,
+			Name:    m.ID,
+			Created: m.Created,
+			Object:  "model",
+		})
+	}
+
+	result := ModelsResponse{
+		Object: "list",
+		Data:   models,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func setCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, x-api-key, anthropic-version")
 }
 
